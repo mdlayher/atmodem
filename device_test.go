@@ -80,39 +80,127 @@ OK`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Open a device using a simulated read/write/closer which returns
-			// user input and captures command output.
-			buf := bytes.NewBuffer(nil)
-			d, err := atmodem.Open(&readWriteCloser{
-				r:    strings.TrimSpace(tt.r),
-				w:    buf,
-				resC: make(chan string),
-			}, 1*time.Second)
-			if err != nil {
-				t.Fatalf("failed to open device: %v", err)
-			}
-			defer d.Close()
+			withDevice(t, tt.r, tt.ok, []byte("ATI\r\n"), func(d *atmodem.Device) error {
+				info, err := d.Info()
+				if err != nil {
+					return err
+				}
 
-			info, err := d.Info()
-			if tt.ok && err != nil {
-				t.Fatalf("failed to fetch info: %v", err)
-			}
-			if !tt.ok && err == nil {
-				t.Fatal("expected an error, but none occurred")
-			}
-			if err != nil {
-				t.Logf("err: %v", err)
-				return
-			}
+				if diff := cmp.Diff(tt.info, info); diff != "" {
+					t.Fatalf("unexpected info (-want +got):\n%s", diff)
+				}
 
-			// Only expect info messages.
-			if diff := cmp.Diff([]byte("ATI\r\n"), buf.Bytes()); diff != "" {
-				t.Fatalf("unexpected modem info command (-want +got):\n%s", diff)
-			}
+				return nil
+			})
+		})
+	}
+}
 
-			if diff := cmp.Diff(tt.info, info); diff != "" {
-				t.Fatalf("unexpected info (-want +got):\n%s", diff)
-			}
+func withDevice(t *testing.T, res string, ok bool, commands []byte, fn func(d *atmodem.Device) error) {
+	t.Helper()
+
+	// Open a device using a simulated read/write/closer which returns
+	// user input and captures command output.
+	buf := bytes.NewBuffer(nil)
+	d, err := atmodem.Open(&readWriteCloser{
+		r:    strings.TrimSpace(res),
+		w:    buf,
+		resC: make(chan string),
+	}, 1*time.Second)
+	if err != nil {
+		t.Fatalf("failed to open device: %v", err)
+	}
+	defer d.Close()
+
+	err = fn(d)
+	if ok && err != nil {
+		t.Fatalf("failed to fetch info: %v", err)
+	}
+	if !ok && err == nil {
+		t.Fatal("expected an error, but none occurred")
+	}
+	if err != nil {
+		t.Logf("err: %v", err)
+		return
+	}
+
+	if diff := cmp.Diff(commands, buf.Bytes()); diff != "" {
+		t.Fatalf("unexpected modem commands (-want +got):\n%s", diff)
+	}
+}
+
+func TestDeviceStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		r      string
+		status *atmodem.Status
+		ok     bool
+	}{
+		{
+			name: "empty",
+			r:    "OK",
+		},
+		{
+			name: "malformed no key/values",
+			r: `
+!GSTATUS:
+foo
+
+OK`,
+		},
+		{
+			name: "malformed too many key/values",
+			r: `
+!GSTATUS:
+foo: bar bar: baz baz: qux
+
+OK`,
+		},
+		{
+			name: "OK MC7455",
+			r: `
+!GSTATUS:
+Current Time:  71465            Temperature: 41
+Reset Counter: 8                Mode:        ONLINE
+System mode:   LTE              PS state:    Attached
+LTE band:      B12              LTE bw:      5 MHz
+LTE Rx chan:   5035             LTE Tx chan: 23035
+LTE CA state:  NOT ASSIGNED
+EMM state:     Registered       Normal Service
+RRC state:     RRC Idle
+IMS reg state: No Srv
+
+PCC RxM RSSI:  -84              RSRP (dBm):  -113
+PCC RxD RSSI:  -84              RSRP (dBm):  -111
+Tx Power:      --               TAC:         BEEF (12345)
+RSRQ (dB):     -13.5            Cell ID:     DEADBEEF (1234567)
+SINR (dB):      0.6
+
+
+OK`,
+			status: &atmodem.Status{
+				CurrentTime: 19*time.Hour + 51*time.Minute + 5*time.Second,
+				Temperature: 41,
+				// TODO!
+			},
+			ok: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withDevice(t, tt.r, tt.ok, []byte("AT!GSTATUS?\r\n"), func(d *atmodem.Device) error {
+				status, err := d.Status()
+				if err != nil {
+					return err
+				}
+
+				if diff := cmp.Diff(tt.status, status); diff != "" {
+					t.Fatalf("unexpected status (-want +got):\n%s", diff)
+				}
+
+				return nil
+			})
 		})
 	}
 }

@@ -118,3 +118,109 @@ func parseInfo(lines []string) (*Info, error) {
 
 	return &i, nil
 }
+
+type Status struct {
+	CurrentTime  time.Duration
+	Temperature  int
+	ResetCounter int
+}
+
+// Status returns the current status of the modem.
+func (d *Device) Status() (*Status, error) {
+	ss, err := d.d.Command("!GSTATUS?")
+	if err != nil {
+		return nil, err
+	}
+	if len(ss) == 0 {
+		return nil, errors.New("atmodem: empty status response from modem")
+	}
+
+	return parseStatus(ss)
+}
+
+// parseStatus unpacks a Status structure from a modem response.
+func parseStatus(lines []string) (*Status, error) {
+	var s Status
+	for i, l := range lines {
+		if i == 0 {
+			// Skip the !GSTATUS: response header.
+			continue
+		}
+
+		// For each line, determine the number of key/value pairs by checking
+		// for colons and keeping track of their positions.
+		var indices []int
+		ss := strings.Fields(l)
+		for i, s := range ss {
+			if strings.HasSuffix(s, ":") {
+				indices = append(indices, i)
+			}
+		}
+
+		switch len(indices) {
+		case 1:
+			// Single key/value pair on one line, parse as-is.
+			if err := s.parse(ss); err != nil {
+				return nil, err
+			}
+		case 2:
+			// Multiple key/value pairs on one line, assume that the format is:
+			// "foo foo: bar    baz baz: qux corge"
+			//
+			// It seems that the first key/value pair on a line always has a
+			// single value without any spaces, likely for ease of parsing
+			// in another program.
+			//
+			// The second key/value pair can contain one or more words until
+			// the end of the line.
+			next := indices[0] + 2
+			if err := s.parse(ss[:next]); err != nil {
+				return nil, err
+			}
+			if err := s.parse(ss[next:]); err != nil {
+				return nil, err
+			}
+		default:
+			// We only handle lines with one or two key/value pairs.
+			return nil, fmt.Errorf("atmodem: unexpected status response line with %d key/value pairs %q", len(indices), l)
+		}
+	}
+
+	return &s, nil
+}
+
+// parse parses a key/value pair string slice into a field of Status.
+func (s *Status) parse(ss []string) error {
+	for i := range ss {
+		if !strings.HasSuffix(ss[i], ":") {
+			// Not a key/value pair.
+			continue
+		}
+
+		// Advance the cursor and interpret the key/value pair as a string key
+		// and slice of fields which may be parsed in different ways.
+		i++
+		k, v := strings.Join(ss[:i], " "), ss[i:]
+
+		switch k {
+		case "Current Time:":
+			v, err := strconv.Atoi(v[0])
+			if err != nil {
+				return err
+			}
+
+			s.CurrentTime = time.Duration(v) * time.Second
+		case "Temperature:":
+			v, err := strconv.Atoi(v[0])
+			if err != nil {
+				return err
+			}
+
+			s.Temperature = v
+		default:
+			// TODO!
+		}
+	}
+
+	return nil
+}
