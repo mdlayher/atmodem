@@ -33,9 +33,32 @@ func newValueParser(ss []string) (*valueParser, error) {
 // Err returns the current parsing error, if there is one.
 func (vp *valueParser) Err() error { return vp.err }
 
+// Float64 parses the input as a float64.
+func (vp *valueParser) Float64() float64 {
+	if vp.err != nil {
+		return 0
+	}
+
+	// This access is safe due to the constructor bounds check.
+	// TODO: parameterize the index?
+	v, err := strconv.ParseFloat(vp.ss[0], 64)
+	if err != nil {
+		vp.err = err
+		return 0
+	}
+
+	return v
+}
+
 // Int parses the input as an integer.
 func (vp *valueParser) Int() int {
 	if vp.err != nil {
+		return 0
+	}
+
+	// Assume this means zero value.
+	// TODO: verify the correctness of this assumption.
+	if vp.ss[0] == "--" {
 		return 0
 	}
 

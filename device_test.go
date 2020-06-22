@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/mdlayher/atmodem"
 )
 
@@ -164,6 +165,14 @@ foo: bar bar: baz baz: qux
 OK`,
 		},
 		{
+			name: "malformed invalid parsing state",
+			r: `
+!GSTATUS:
+RSRP (dBm):  -113
+
+OK`,
+		},
+		{
 			name: "OK MC7455",
 			r: `
 !GSTATUS:
@@ -186,9 +195,29 @@ SINR (dB):      0.6
 
 OK`,
 			status: &atmodem.Status{
-				CurrentTime: 19*time.Hour + 51*time.Minute + 5*time.Second,
-				Temperature: 41,
-				// TODO!
+				CurrentTime:        19*time.Hour + 51*time.Minute + 5*time.Second,
+				Temperature:        41,
+				ResetCounter:       8,
+				Mode:               "ONLINE",
+				SystemMode:         "LTE",
+				PSState:            "Attached",
+				LTEBand:            "B12",
+				LTEBandwidthMHz:    5,
+				LTEReceiveChannel:  5035,
+				LTETransmitChannel: 23035,
+				LTECAState:         "NOT ASSIGNED",
+				EMMState:           "Registered Normal Service",
+				RRCState:           "RRC Idle",
+				IMSRegState:        "No Srv",
+				PCCRXMRSSI:         -84,
+				RSRPRXMdBm:         -113,
+				PCCRXDRSSI:         -84,
+				RSRPRXDdBm:         -111,
+				TransmitPower:      0,
+				TAC:                "BEEF (12345)",
+				CellID:             "DEADBEEF (1234567)",
+				RSRQdB:             -13.5,
+				SINRdB:             0.6,
 			},
 			ok: true,
 		},
@@ -202,7 +231,7 @@ OK`,
 					return err
 				}
 
-				if diff := cmp.Diff(tt.status, status); diff != "" {
+				if diff := cmp.Diff(tt.status, status, cmpopts.IgnoreUnexported(atmodem.Status{})); diff != "" {
 					t.Fatalf("unexpected status (-want +got):\n%s", diff)
 				}
 

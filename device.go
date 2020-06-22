@@ -119,11 +119,32 @@ func parseInfo(lines []string) (*Info, error) {
 	return &i, nil
 }
 
+// Status contains the modem's current radio status.
 type Status struct {
-	CurrentTime  time.Duration
-	Temperature  int
-	ResetCounter int
+	CurrentTime                                 time.Duration
+	Temperature, ResetCounter                   int
+	Mode, SystemMode, PSState, LTEBand          string
+	LTEBandwidthMHz                             float64
+	LTEReceiveChannel, LTETransmitChannel       int
+	LTECAState, EMMState, RRCState, IMSRegState string
+	PCCRXMRSSI, RSRPRXMdBm                      int
+	PCCRXDRSSI, RSRPRXDdBm                      int
+	TransmitPower                               int
+	TAC, CellID                                 string
+	RSRQdB, SINRdB                              float64
+
+	state statusState
 }
+
+// statusState stores temporary state while parsing Status fields.
+type statusState int
+
+// Possible statusState values which indicate alternative parsing code paths.
+const (
+	_ statusState = iota
+	rxmLast
+	rxdLast
+)
 
 // Status returns the current status of the modem.
 func (d *Device) Status() (*Status, error) {
@@ -216,6 +237,59 @@ func (s *Status) parse(ss []string) error {
 			s.CurrentTime = time.Duration(vp.Int()) * time.Second
 		case "Temperature:":
 			s.Temperature = vp.Int()
+		case "Reset Counter:":
+			s.ResetCounter = vp.Int()
+		case "Mode:":
+			s.Mode = vp.String()
+		case "System mode:":
+			s.SystemMode = vp.String()
+		case "PS state:":
+			s.PSState = vp.String()
+		case "LTE band:":
+			s.LTEBand = vp.String()
+		case "LTE bw:":
+			s.LTEBandwidthMHz = vp.Float64()
+		case "LTE Rx chan:":
+			s.LTEReceiveChannel = vp.Int()
+		case "LTE Tx chan:":
+			s.LTETransmitChannel = vp.Int()
+		case "LTE CA state:":
+			s.LTECAState = vp.String()
+		case "EMM state:":
+			// TODO: consider parsing as state and substate fields.
+			s.EMMState = vp.String()
+		case "RRC state:":
+			s.RRCState = vp.String()
+		case "IMS reg state:":
+			s.IMSRegState = vp.String()
+		case "PCC RxM RSSI:":
+			s.PCCRXMRSSI = vp.Int()
+			s.state = rxmLast
+		case "PCC RxD RSSI:":
+			s.PCCRXDRSSI = vp.Int()
+			s.state = rxdLast
+		case "RSRP (dBm):":
+			// This key is reused for multiple fields, so the value is parsed
+			// into different struct fields depending on the previous parser
+			// state.
+			switch s.state {
+			case rxmLast:
+				s.RSRPRXMdBm = vp.Int()
+			case rxdLast:
+				s.RSRPRXDdBm = vp.Int()
+			default:
+				return fmt.Errorf("atmodem: cannot determine which RSRP dBm value is being parsed")
+			}
+		case "Tx Power:":
+			s.TransmitPower = vp.Int()
+		case "TAC:":
+			s.TAC = vp.String()
+		case "Cell ID:":
+			s.CellID = vp.String()
+		case "RSRQ (dB):":
+			s.RSRQdB = vp.Float64()
+		case "SINR (dB):":
+			s.SINRdB = vp.Float64()
 		default:
 			// TODO!
 		}
