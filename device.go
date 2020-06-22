@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -88,31 +87,32 @@ func parseInfo(lines []string) (*Info, error) {
 			return nil, fmt.Errorf("atmodem: malformed info line: %q", l)
 		}
 
-		// Remove any extra whitespace before parsing.
-		ss[1] = strings.TrimSpace(ss[1])
+		vp, err := newValueParser([]string{ss[1]})
+		if err != nil {
+			return nil, err
+		}
 
 		switch ss[0] {
 		case "Manufacturer":
-			i.Manufacturer = ss[1]
+			i.Manufacturer = vp.String()
 		case "Model":
-			i.Model = ss[1]
+			i.Model = vp.String()
 		case "Revision":
-			i.Revision = ss[1]
+			i.Revision = vp.String()
 		case "IMEI":
-			i.IMEI = ss[1]
+			i.IMEI = vp.String()
 		case "MEID":
-			i.MEID = ss[1]
+			i.MEID = vp.String()
 		case "IMEI SV":
-			v, err := strconv.Atoi(ss[1])
-			if err != nil {
-				return nil, err
-			}
-
-			i.IMEISV = v
+			i.IMEISV = vp.Int()
 		case "FSN":
-			i.FSN = ss[1]
+			i.FSN = vp.String()
 		case "+GCAP":
-			i.GCAP = strings.Split(ss[1], ",")
+			i.GCAP = strings.Split(vp.String(), ",")
+		}
+
+		if err := vp.Err(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -140,6 +140,10 @@ func (d *Device) Status() (*Status, error) {
 
 // parseStatus unpacks a Status structure from a modem response.
 func parseStatus(lines []string) (*Status, error) {
+	// TODO: consider a regex based parsing approach if it turns out the format
+	// is more complex than anticipated.
+	//
+	// Example: https://regex101.com/r/DS6IIk/5, thanks @cockeys!
 	var s Status
 	for i, l := range lines {
 		if i == 0 {
@@ -200,25 +204,24 @@ func (s *Status) parse(ss []string) error {
 		// Advance the cursor and interpret the key/value pair as a string key
 		// and slice of fields which may be parsed in different ways.
 		i++
-		k, v := strings.Join(ss[:i], " "), ss[i:]
+		k := strings.Join(ss[:i], " ")
+
+		vp, err := newValueParser(ss[i:])
+		if err != nil {
+			return err
+		}
 
 		switch k {
 		case "Current Time:":
-			v, err := strconv.Atoi(v[0])
-			if err != nil {
-				return err
-			}
-
-			s.CurrentTime = time.Duration(v) * time.Second
+			s.CurrentTime = time.Duration(vp.Int()) * time.Second
 		case "Temperature:":
-			v, err := strconv.Atoi(v[0])
-			if err != nil {
-				return err
-			}
-
-			s.Temperature = v
+			s.Temperature = vp.Int()
 		default:
 			// TODO!
+		}
+
+		if err := vp.Err(); err != nil {
+			return err
 		}
 	}
 

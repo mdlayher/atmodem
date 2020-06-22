@@ -24,9 +24,16 @@ func TestDeviceInfo(t *testing.T) {
 			r:    "OK",
 		},
 		{
-			name: "malformed",
+			name: "malformed key/value",
 			r: `
 Manufacturer
+
+OK`,
+		},
+		{
+			name: "malformed integer",
+			r: `
+IMEI SV: foo
 
 OK`,
 		},
